@@ -58,7 +58,7 @@ void main() {
 		printf("\n\nWaiting room count: %d\n", waiting_room->count);
 		printf("Executive room count: %d\n", executive_room->count);
 
-		sleep(3);
+		sleep(6);
 
 		printf("\n------------------------------");
 
@@ -99,6 +99,8 @@ void main() {
 			printf("\n *****");
 
 			semop(sem_id, &sem_op, 1);
+
+			printf("\n\n(served)");
 
 			printf("\n\n *****");
 			printf("\nExecutive: It was a pleasure serving you!");
