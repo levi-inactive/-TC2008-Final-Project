@@ -1,16 +1,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <sys/types.h>
+#include <sys/ipc.h>
 #include <sys/shm.h>
+#include <sys/sem.h>
 
 #include "Rooms.h"
 
-void serve_client();
-
 void main() {
-	int wr_memory_id, er_memory_id;
+	int wr_memory_id, er_memory_id, sem_id;
 	struct Room *waiting_room = NULL;
 	struct Room *executive_room = NULL;
+
+	struct sembuf sem_op;
 
 	// Access the shared memory Room struct we will call waiting_room.
 	wr_memory_id = shmget (10, sizeof(struct Room), 0777 | IPC_CREAT);
@@ -20,8 +23,7 @@ void main() {
 	// empty and with an int array of size 7.
 	waiting_room->size = 7;
 	waiting_room->count = 0;
-	int *ptr_wrspots = malloc(sizeof(int) * 7);
-	waiting_room->spots = (int *)ptr_wrspots;
+	printf("\nWaiting room initialization complete");
 
 	// Access the shared memory Room struct we will call executive_room.
 	er_memory_id = shmget (20, sizeof(struct Room), 0777 | IPC_CREAT);
@@ -31,13 +33,16 @@ void main() {
 	// empty and with an int array of size 2.
 	executive_room->size = 2;
 	executive_room->count = 0;
-	int *ptr_erspots = malloc(sizeof(int) * 2);
-	executive_room->spots = (int *)ptr_erspots;
+
+	// Access the shared memory sempahore and turn it off.
+	sem_id = semget(30, 1, 0777 | IPC_CREAT);
+	semctl(sem_id, 0, SETVAL, 0);
+
+	sem_op.sem_num = 0;
+	sem_op.sem_op = 1;
+	sem_op.sem_flg = 0;
 
 	// First, the executive arrives to her office and always
-	// sits in the [0] spot.
-	int executive_id = getpid();
-	executive_room->spots[0] = executive_id;
 	executive_room->count++;
 
 	int wr_isnotfull = 0;
@@ -53,16 +58,6 @@ void main() {
 		printf("\n\nWaiting room count: %d\n", waiting_room->count);
 		printf("Executive room count: %d\n", executive_room->count);
 
-		printf("\nPeople in the waiting room: ");
-		for (int i = 0; i < waiting_room->size; i++) {
-			printf("\n\t%d", waiting_room->spots[i]);
-		}
-
-		printf("\n\nPeople in the executive room: ");
-		for (int i = 0; i < executive_room->size; i++) {
-			printf("\n\t%d", executive_room->spots[i]);
-		}
-
 		sleep(3);
 
 		printf("\n------------------------------");
@@ -76,6 +71,7 @@ void main() {
 
 		// Is it empty?
 		if (waiting_room->count == 0)	wr_isempty = 1;
+		else 				wr_isempty = 0;
 
 		// Is there any client pending to serve?
 		if ((!resting && waiting_room->count > 0) || (resting && waiting_room->count > 1))
@@ -89,21 +85,24 @@ void main() {
 				printf("\nExecutive: Woah! Okay! Let's get back to work then.");
 				printf("\n *****");
 
-				// If I was resting, don't.
-				for (int i = 0; i < waiting_room->size; i++) {
-					if (waiting_room->spots[i] == executive_id) {
-						executive_room->spots[0] = executive_id;
-						executive_room->count++;
+				// Exit the waiting_room.
+				waiting_room->count--;
 
-						waiting_room->spots[i] = 0;
-						waiting_room->count--;
-					}
-				}
+				// Enter the executive room.
+				executive_room->count++;
 
 				resting = 0;
 			}
 
-			serve_client();
+			printf("\n\n *****");
+			printf("\nExecutive: Mr., you might come in...");
+			printf("\n *****");
+
+			semop(sem_id, &sem_op, 1);
+
+			printf("\n\n *****");
+			printf("\nExecutive: It was a pleasure serving you!");
+			printf("\n *****");
 		}
 
 		// If there are no clients and I'm not already resting,
@@ -115,31 +114,17 @@ void main() {
 
 			resting = 1;
 
-			waiting_room->spots[waiting_room->count] = executive_room->spots[0];
-			waiting_room->count++;
-
-			executive_room->spots[0] = 0;
+			// Exit the executive_room
 			executive_room->count--;
+
+			// Enter the waiting_room
+			waiting_room->count++;
 		}
 	}
 
 	shmdt((char *)waiting_room);
 	shmdt((char *)executive_room);
-	struct shmid_ds free;
-	free.shm_nattch = 0;
-	shmctl(wr_memory_id, IPC_RMID, &free);
-	shmctl(er_memory_id, IPC_RMID, &free);
-}
 
-void serve_client() {
-	printf("\n\n *****");
-	printf("\nExecutive: Sir/Miss, you might come in...");
-	printf("\n *****");
-
-	// Tell client to come in
-	// wait without sleeping
-
-	printf("\n\n *****");
-	printf("\nExecutive: It was a pleasure serving you!");
-	printf("\n *****");
+	shmctl(wr_memory_id, IPC_RMID, 0);
+	shmctl(er_memory_id, IPC_RMID, 0);
 }
